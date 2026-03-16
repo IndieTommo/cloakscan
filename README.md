@@ -1,44 +1,208 @@
 # Cloakscan
 
-Cloakscan is a terminal-first scanner for SEO professionals to triage likely cloaked SEO spam and related hacked-site symptoms.
+Cloakscan is a terminal-first Python scanner for spotting cloaked SEO spam, bot-only redirects, suspicious rendered content changes, and related hacked-site symptoms.
 
-## Features
+## Quick Start
 
-- Compare three views of each target:
-  - Browser-like HTTP fetch
-  - Bot-like HTTP fetch
-  - Headless-rendered DOM (Playwright)
-- Detect likely cloaking, spam keyword injections, hidden/outbound link anomalies, and redirect mismatches.
-- Print compact per-target results, optional explain-mode metrics, and batch progress with ETA.
-- Return automation-friendly exit codes:
-  - `0`: all targets CLEAN/LOW
-  - `1`: at least one MEDIUM/HIGH
-  - `2`: fatal runtime/config error
-  - `3`: partial target failures, none MEDIUM/HIGH
+PowerShell, from the project folder:
 
-## Usage
-
-```bash
-python cloakscan.py scan https://example.com --preset balanced
-python cloakscan.py scan --input targets.txt --explain
-python cloakscan.py scan example.com --no-headless --no-new-window
+```powershell
+python -m pip install typer rich httpx playwright beautifulsoup4
+python -m playwright install chromium
+python cloakscan.py
 ```
 
-## Input separators
+That opens the Cloakscan terminal window. Inside it, run commands like:
 
-Supported separators for `--input` files:
+```powershell
+scan https://example.com
+scan https://example.com --explain
+scan domains.txt
+help
+clear
+exit
+```
+
+If you do not want a separate window:
+
+```powershell
+python cloakscan.py scan https://example.com --no-new-window
+```
+
+## Interactive Commands
+
+When you start with:
+
+```powershell
+python cloakscan.py
+```
+
+You can type these directly in the Cloakscan window:
+
+- `scan <target...> [options]`
+- `help`
+- `clear` or `cls`
+- `exit` or `quit`
+
+## What Cloakscan Checks
+
+For each target, Cloakscan compares up to three views:
+
+- browser-like HTTP fetch
+- bot-like HTTP fetch
+- headless rendered DOM via Playwright
+
+It can detect:
+
+- bot/human content mismatch
+- rendered/human content mismatch
+- suspicious outbound link growth
+- hidden link injection
+- spam keyword signals
+- bot-only or JS redirect mismatches
+- incomplete scans caused by TLS/fetch problems on one of the views
+
+## Main Scan Options
+
+```text
+--input PATH
+--preset [quick|balanced|strict]
+--config PATH
+--explain
+--debug
+--tls-debug
+--cache-bust / --no-cache-bust
+--safe
+--no-headless
+--no-new-window
+--help
+```
+
+What they do:
+
+- `--input PATH`
+  - read targets from a text file
+- `--preset`
+  - `quick`: faster, less sensitive
+  - `balanced`: default
+  - `strict`: slower, more sensitive
+- `--config PATH`
+  - use a specific TOML config file
+- `--explain`
+  - print measured signal details and evidence snippets
+- `--debug`
+  - print phase timings and scan metadata
+- `--tls-debug`
+  - after a bot TLS failure, retry that bot fetch without certificate verification to reveal redirect/certificate path details for debugging
+  - diagnostic only
+  - not the default behavior
+- `--cache-bust`
+  - enabled by default
+  - adds per-profile cache-busting tokens to reduce false negatives on cached sites
+- `--no-cache-bust`
+  - disables cache-busting
+- `--safe`
+  - safer mode
+  - disables headless rendering
+  - keeps strict network safeguards
+- `--no-headless`
+  - disables the rendered DOM check only
+- `--no-new-window`
+  - stay in the current terminal
+
+## Examples
+
+Single target:
+
+```powershell
+scan https://example.com
+```
+
+Single target with more detail:
+
+```powershell
+scan https://example.com --explain --debug
+```
+
+TLS/redirect diagnosis for bot-only issues:
+
+```powershell
+scan https://example.com --explain --debug --tls-debug
+```
+
+Safer HTTP-only style triage:
+
+```powershell
+scan https://example.com --safe
+```
+
+Batch scan from file:
+
+```powershell
+scan domains.txt
+```
+
+Direct one-shot invocation from PowerShell:
+
+```powershell
+python cloakscan.py scan https://example.com --preset balanced --no-new-window
+```
+
+## Input Rules
+
+Targets can come from CLI arguments or `--input`.
+
+Supported separators inside input text:
 
 - newline
 - semicolon (`;`)
-- standalone colon delimiter (` : ` with spaces around it)
+- standalone colon delimiter (` : `)
 
-`/` is not treated as a separator.
+Not supported as separators:
 
-## Config file
+- `/`
 
-Default config file path: `./cloakscan.toml` (loaded automatically if present). You can also pass `--config`.
+That means URLs like `https://example.com/` are preserved correctly.
 
-Top-level configurable keys:
+Useful behavior:
+
+- `scan domains.txt` auto-detects a single existing local text file and treats it as input
+- bare domains are normalized to `https://domain/`
+- if the HTTPS browser fetch fails and a fallback exists, Cloakscan can fall back to `http://domain/`
+
+## Presets
+
+Current built-in presets are:
+
+- `quick`
+  - shortest timeouts
+  - least sensitive thresholds
+  - good for fast first-pass checks
+- `balanced`
+  - default
+  - recommended for normal use
+- `strict`
+  - longest timeouts
+  - most sensitive thresholds
+  - more likely to surface borderline differences
+
+## Config File
+
+Default config file:
+
+```text
+./cloakscan.toml
+```
+
+If present, it is loaded automatically. You can also pass `--config`.
+
+Recommended workflow:
+
+```powershell
+Copy-Item .\cloakscan.toml.example .\cloakscan.toml
+```
+
+Config areas available in TOML:
 
 - `retries`
 - `max_redirects`
@@ -49,22 +213,91 @@ Top-level configurable keys:
 - `[concurrency]`
 - `[user_agents]`
 
-## New terminal behavior
+See `cloakscan.toml.example` for the current template.
 
-When launched as `python cloakscan.py ...`, Cloakscan attempts to open a new terminal window by default. This is best-effort only:
+## Output Meanings
 
-- If unsupported or unavailable, Cloakscan continues in the current terminal.
-- Fallback is setting terminal title to `Cloakscan`.
-- Disable spawning via `--no-new-window`.
-- Spawning is automatically suppressed in CI/non-interactive environments.
+Per target, you will typically see one of these:
 
-## Security posture
+- `CLEAN`
+  - no significant signal found
+- `LOW`
+  - weak or noisy signal found
+- `MEDIUM`
+  - meaningful suspicious evidence found
+- `HIGH`
+  - strong evidence found
+- `PARTIAL`
+  - the scan did not complete cleanly for all expected views
 
-- Dependencies should be pinned by deployment tooling.
-- Prefer hash-checked installs for integrity (`pip --require-hashes` workflows).
-- Optional environment audit with `pip-audit`.
+You may also see partial evidence wording such as:
+
+```text
+MEDIUM example.com - Possible sneaky redirect mismatch (partial evidence: bot TLS failed)
+```
+
+That means:
+
+- Cloakscan found a real suspicious signal
+- but one required fetch path also had an acquisition problem
+
+Summary lines:
+
+- `Partial scans`
+  - targets where one or more expected views did not complete cleanly
+- `Failures`
+  - hard failures where the target scan itself failed
+
+## Exit Codes
+
+- `0`
+  - all targets are `CLEAN` or `LOW`, with no partials/failures
+- `1`
+  - at least one target is `MEDIUM` or `HIGH`
+- `2`
+  - fatal runtime or config error
+- `3`
+  - no `MEDIUM`/`HIGH`, but at least one partial scan or failure
+
+## Security Notes
+
+Defaults are intentionally conservative:
+
+- strict TLS verification is on by default
+- private/local destinations are blocked by default
+- only `http` and `https` are allowed
+- raw HTML is not saved to disk by default
+
+Important flags:
+
+- `--safe`
+  - best low-risk mode for routine checks
+- `--tls-debug`
+  - opt-in diagnostic mode for bot TLS failures
+  - uses insecure verification only for the debug retry path
+  - useful for your own sites and investigations
+  - should not be your default workflow for unknown targets
+
+## Terminal Behavior
+
+When you launch with:
+
+```powershell
+python cloakscan.py
+```
+
+Cloakscan tries to open a dedicated terminal window titled `Cloakscan`.
+
+Behavior:
+
+- best effort only
+- if unsupported, it stays in the current terminal
+- `--no-new-window` disables spawning
+- in CI/non-interactive environments, spawning is suppressed automatically
 
 ## Limitations
 
-- Cloakscan does not and will not emulate Googlebot IP/DNS identity.
-- Cloakscan is heuristic triage, not full forensic analysis or remediation.
+- Cloakscan does not emulate Googlebot IP identity or reverse-DNS trust
+- Cloakscan is heuristic triage, not a full forensic platform
+- `--tls-debug` is diagnostic; it helps explain a bot TLS failure, but it does not change the secure default scan path
+- headless rendering executes untrusted page JavaScript, so `--safe` is the lower-risk option for routine use
