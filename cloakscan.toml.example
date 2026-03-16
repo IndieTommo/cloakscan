@@ -1,0 +1,32 @@
+retries = 1
+max_redirects = 8
+headless_enabled = true
+
+[timeouts]
+http_seconds = 12.0
+headless_seconds = 18.0
+total_target_seconds = 35.0
+
+[thresholds]
+similarity_min = 0.46
+length_delta_max = 0.55
+hidden_link_min = 6
+japanese_ratio_min = 0.20
+outbound_link_delta_min = 15
+external_domain_delta_min = 5
+keyword_delta_min = 1
+
+[concurrency]
+http_workers = 3
+headless_workers = 1
+
+[keywords]
+casino = ["casino", "betting", "sportsbook", "poker", "slots", "blackjack", "roulette", "jackpot"]
+pharma = ["viagra", "cialis", "levitra", "pharmacy", "cheap meds", "no prescription"]
+adult = ["porn", "xxx", "adult video", "escort", "sex cam", "adult dating"]
+japanese = ["激安", "偽ブランド", "ブランドコピー", "オンラインカジノ", "アダルト", "医薬品"]
+
+[user_agents]
+browser = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+bot = "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
+headless = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
