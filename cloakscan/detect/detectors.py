@@ -205,6 +205,16 @@ def _matched_keyword_samples(text: str, keywords: list[str], limit: int = _MAX_E
     return matched
 
 
+def _format_sample_list(samples: list[str]) -> str:
+    formatted: list[str] = []
+    for sample in samples:
+        if sample.isascii():
+            formatted.append(sample)
+        else:
+            formatted.append(sample.encode('unicode_escape').decode('ascii'))
+    return ', '.join(formatted)
+
+
 def _hidden_text_signal_details(
     extracted_views: list[tuple[str, object, int, list[str]]],
 ) -> tuple[dict[str, int], list[str]]:
@@ -218,7 +228,7 @@ def _hidden_text_signal_details(
         if hidden_keyword_hits > 0:
             metrics[f"{label}_hidden_keyword_hits"] = hidden_keyword_hits
         if hidden_keyword_samples:
-            details.append(f"{label} hidden keywords: {', '.join(hidden_keyword_samples[:_MAX_EXPLAIN_ITEMS])}")
+            details.append(f"{label} hidden keywords: {_format_sample_list(hidden_keyword_samples[:_MAX_EXPLAIN_ITEMS])}")
         if extracted_view.hidden_external_links:
             links = ", ".join(extracted_view.hidden_external_links[:_MAX_EXPLAIN_ITEMS])
             details.append(f"{label} hidden external links: {links}")
@@ -348,7 +358,7 @@ def detect_signals(
                             "browser_hits": browser_hits,
                         },
                         details=[
-                            f"matched keywords: {', '.join(keyword_samples)}"
+                            f"matched keywords: {_format_sample_list(keyword_samples)}"
                         ]
                         if keyword_samples
                         else [],
@@ -356,26 +366,30 @@ def detect_signals(
                 )
 
         japanese_hits = _keyword_hits(suspicious_text, config.keywords.japanese)
+        browser_japanese_hits = _keyword_hits(browser_text, config.keywords.japanese)
         highest_japanese_ratio = max(
             [entry.japanese_ratio for entry in suspicious_views] + [0.0]
         )
-        if (
-            highest_japanese_ratio >= thresholds.japanese_ratio_min
-            and japanese_hits > 0
-            and bool(mismatch_codes)
-        ):
+        if japanese_hits - browser_japanese_hits >= thresholds.keyword_delta_min:
             token_samples = _matched_keyword_samples(suspicious_text, config.keywords.japanese)
+            strong_japanese_pattern = (
+                highest_japanese_ratio >= thresholds.japanese_ratio_min
+                and bool(mismatch_codes)
+            )
+            metrics: dict[str, int | float] = {
+                "suspicious_hits": japanese_hits,
+                "browser_hits": browser_japanese_hits,
+            }
+            if strong_japanese_pattern:
+                metrics["ratio"] = round(highest_japanese_ratio, 3)
             signals.append(
                 Signal(
                     code="japanese_spam_signal",
-                    message="Japanese keyword spam pattern",
-                    points=3,
-                    metrics={
-                        "ratio": round(highest_japanese_ratio, 3),
-                        "token_hits": japanese_hits,
-                    },
+                    message="Japanese keyword spam pattern" if strong_japanese_pattern else "Japanese keyword signal",
+                    points=3 if strong_japanese_pattern else 2,
+                    metrics=metrics,
                     details=[
-                        f"matched tokens: {', '.join(token_samples)}"
+                        f"matched token count: {len(token_samples)}"
                     ]
                     if token_samples
                     else [],
@@ -472,3 +486,4 @@ def detect_signals(
             )
 
     return signals
+

@@ -168,8 +168,42 @@ class DetectorTests(unittest.TestCase):
             ),
         }
         signals = detect_signals(target=target, views=views, config=config)
-        codes = {signal.code for signal in signals}
-        self.assertIn("japanese_spam_signal", codes)
+        japanese_signal = next(signal for signal in signals if signal.code == "japanese_spam_signal")
+        self.assertEqual(japanese_signal.message, "Japanese keyword spam pattern")
+        self.assertIn("ratio", japanese_signal.metrics)
+
+    def test_detects_bot_only_japanese_keyword_injection_without_global_mismatch(self) -> None:
+        from cloakscan.detect import detect_signals
+
+        config = load_scan_config("balanced", config_path=None)
+        target = TargetSpec(raw="example.com", normalized_url="https://example.com/")
+        views = {
+            "browser": ViewSnapshot(
+                profile="browser",
+                requested_url="https://example.com/",
+                final_url="https://example.com/",
+                status_code=200,
+                html="<html><body><h1>Welcome to our store</h1><p>Normal content for visitors.</p></body></html>",
+            ),
+            "bot": ViewSnapshot(
+                profile="bot",
+                requested_url="https://example.com/",
+                final_url="https://example.com/",
+                status_code=200,
+                html=(
+                    "<html><body><h1>Welcome to our store</h1><p>Normal content for visitors.</p>"
+                    "<h1>\u683c\u5b89\u901a\u8ca9\u30aa\u30f3\u30e9\u30a4\u30f3\u30ab\u30b8\u30ce</h1></body></html>"
+                ),
+            ),
+        }
+        signals = detect_signals(target=target, views=views, config=config)
+        japanese_signal = next(signal for signal in signals if signal.code == "japanese_spam_signal")
+        self.assertEqual(japanese_signal.message, "Japanese keyword signal")
+        self.assertEqual(japanese_signal.points, 2)
+        self.assertEqual(japanese_signal.metrics["browser_hits"], 0)
+        self.assertGreaterEqual(japanese_signal.metrics["suspicious_hits"], 1)
+        self.assertTrue(any("matched token count:" in detail for detail in japanese_signal.details))
+        self.assertNotIn("bot_human_mismatch", {signal.code for signal in signals})
 
     def test_outbound_link_signal_includes_domains_and_links(self) -> None:
         from cloakscan.detect import detect_signals
@@ -275,4 +309,7 @@ class DetectorTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+
 

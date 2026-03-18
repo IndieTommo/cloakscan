@@ -12,7 +12,7 @@ from rich.progress import (
 
 from cloakscan.models import DebugEvent, DebugValue, RunSummary, TargetResult
 
-BANNER_VERSION = "v1.0.2 by Tommo"
+BANNER_VERSION = "v1.1.0 by Tommo"
 
 BANNER = r"""
           $$\                     $$\                                                    
@@ -50,6 +50,14 @@ def create_progress(console: Console) -> Progress:
         TimeRemainingColumn(),
         console=console,
         transient=False,
+    )
+
+
+def create_loading_indicator(console: Console) -> Progress:
+    return Progress(
+        TextColumn("[bold blue]{task.description}"),
+        console=console,
+        transient=True,
     )
 
 

@@ -48,12 +48,15 @@ _DEFAULT_KEYWORDS: dict[str, list[str]] = {
         "adult dating",
     ],
     "japanese": [
-        "激安",
-        "偽ブランド",
-        "ブランドコピー",
-        "オンラインカジノ",
-        "アダルト",
-        "医薬品",
+        "\u683c\u5b89",
+        "\u683c\u5b89\u901a\u8ca9",
+        "\u901a\u8ca9",
+        "\u6fc0\u5b89",
+        "\u507d\u30d6\u30e9\u30f3\u30c9",
+        "\u30d6\u30e9\u30f3\u30c9\u30b3\u30d4\u30fc",
+        "\u30aa\u30f3\u30e9\u30a4\u30f3\u30ab\u30b8\u30ce",
+        "\u30a2\u30c0\u30eb\u30c8",
+        "\u533b\u85ac\u54c1",
     ],
 }
 

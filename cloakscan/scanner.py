@@ -14,7 +14,7 @@ from cloakscan.fetch import fetch_http_view
 from cloakscan.models import DebugEvent, ScanConfig, TargetResult, TargetSpec, ViewSnapshot
 from cloakscan.render import HeadlessRenderer
 from cloakscan.score import build_summary, classify_risk, compute_exit_code, summarize_reason
-from cloakscan.ui import create_progress, print_debug_event, print_result
+from cloakscan.ui import create_loading_indicator, create_progress, print_debug_event, print_result
 
 _TLS_ERROR_MARKERS = (
     "certificate_verify_failed",
@@ -198,6 +198,18 @@ def _cache_bust_token(run_id: str | None, profile: str) -> str | None:
     if run_id is None:
         return None
     return f"{run_id}-{profile}"
+
+
+async def _animate_loading_indicator(progress, task_id: int, stop_event: asyncio.Event) -> None:
+    frames = ("Loading", "Loading.", "Loading..", "Loading...")
+    index = 0
+    progress.update(task_id, description=frames[index])
+    while not stop_event.is_set():
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=0.35)
+        except TimeoutError:
+            index = (index + 1) % len(frames)
+            progress.update(task_id, description=frames[index])
 
 
 async def _run_bot_tls_debug_fetch(
@@ -595,9 +607,6 @@ async def run_scan(
                     ),
                 )
 
-            if progress is not None and task_id is not None:
-                progress.update(task_id, description="Scanning targets")
-
             futures = [
                 asyncio.create_task(
                     _scan_target_with_timeout(
@@ -617,16 +626,33 @@ async def run_scan(
                 for target in targets
             ]
 
-            for future in asyncio.as_completed(futures):
-                result = await future
-                if progress is not None and task_id is not None:
+            if progress is not None and task_id is not None:
+                progress.update(task_id, description="Scanning targets")
+                for future in asyncio.as_completed(futures):
+                    result = await future
                     progress.update(task_id, advance=1)
+                    print_result(output_console, result, explain=explain, debug=debug)
+                    results.append(_discard_result_payloads(result))
+            else:
+                loading_indicator = create_loading_indicator(console)
+                stop_event = asyncio.Event()
+                with loading_indicator:
+                    loading_task_id = loading_indicator.add_task("Loading", total=None)
+                    animation_task = asyncio.create_task(
+                        _animate_loading_indicator(loading_indicator, loading_task_id, stop_event)
+                    )
+                    try:
+                        result = await futures[0]
+                    finally:
+                        stop_event.set()
+                        await animation_task
                 print_result(output_console, result, explain=explain, debug=debug)
                 results.append(_discard_result_payloads(result))
 
     runtime_seconds = time.perf_counter() - started_at
     summary = build_summary(results=results, runtime_seconds=runtime_seconds)
     return results, compute_exit_code(summary)
+
 
 
 class _RendererContext:

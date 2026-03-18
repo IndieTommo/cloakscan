@@ -13,7 +13,7 @@ from cloakscan.models import TargetResult, TargetSpec, ViewSnapshot
 class _FakeProgress:
     def __init__(self, console: Console) -> None:
         self.console = console
-        self.add_task_calls: list[tuple[str, int]] = []
+        self.add_task_calls: list[tuple[str, int | None]] = []
         self.update_calls: list[tuple[int, dict[str, object]]] = []
 
     def __enter__(self) -> "_FakeProgress":
@@ -22,7 +22,7 @@ class _FakeProgress:
     def __exit__(self, exc_type, exc, tb) -> None:
         return None
 
-    def add_task(self, description: str, total: int) -> int:
+    def add_task(self, description: str, total: int | None) -> int:
         self.add_task_calls.append((description, total))
         return 1
 
@@ -55,20 +55,24 @@ class ScannerBehaviorTests(unittest.IsolatedAsyncioTestCase):
                 runtime_seconds=0.2,
             )
 
-        with patch("cloakscan.scanner.create_progress", side_effect=AssertionError("progress should be hidden")):
-            with patch("cloakscan.scanner._scan_target_with_timeout", side_effect=fake_scan_target):
-                results, exit_code = await scanner.run_scan(
-                    targets=[TargetSpec(raw="example.com", normalized_url="https://example.com/")],
-                    config=config,
-                    explain=False,
-                    debug=False,
-                    tls_debug=False,
-                    console=Console(record=True),
-                )
+        fake_loader = _FakeProgress(Console(record=True))
+        with patch("cloakscan.scanner.create_progress", side_effect=AssertionError("batch progress should stay hidden")):
+            with patch("cloakscan.scanner.create_loading_indicator", return_value=fake_loader):
+                with patch("cloakscan.scanner._scan_target_with_timeout", side_effect=fake_scan_target):
+                    results, exit_code = await scanner.run_scan(
+                        targets=[TargetSpec(raw="example.com", normalized_url="https://example.com/")],
+                        config=config,
+                        explain=False,
+                        debug=False,
+                        tls_debug=False,
+                        console=Console(record=True),
+                    )
 
         self.assertEqual(exit_code, 0)
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0].views["browser"].html, "")
+        self.assertEqual(fake_loader.add_task_calls, [("Loading", None)])
+        self.assertTrue(any(update[1].get("description") == "Loading" for update in fake_loader.update_calls))
 
     async def test_multi_target_scan_uses_progress(self) -> None:
         from cloakscan import scanner
