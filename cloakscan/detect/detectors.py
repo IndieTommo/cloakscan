@@ -9,6 +9,7 @@ from cloakscan.models import ScanConfig, Signal, TargetSpec, ViewSnapshot
 
 _TOKEN_RE = re.compile(r"[a-z0-9\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff]+", re.IGNORECASE)
 _MAX_EXPLAIN_ITEMS = 5
+_MIN_HIDDEN_TEXT_CHARS = 8
 
 
 def _tokenize(text: str) -> set[str]:
@@ -51,6 +52,25 @@ def _keyword_hits(text: str, keywords: list[str]) -> int:
             lowered = text.lower()
             total += lowered.count(marker.lower())
     return total
+
+
+def _hidden_keyword_hits(text: str, config: ScanConfig) -> tuple[int, list[str]]:
+    keyword_sets = (
+        config.keywords.casino,
+        config.keywords.pharma,
+        config.keywords.adult,
+        config.keywords.japanese,
+    )
+    total = 0
+    matched: list[str] = []
+    for keywords in keyword_sets:
+        total += _keyword_hits(text, keywords)
+        for keyword in _matched_keyword_samples(text, keywords):
+            if keyword not in matched:
+                matched.append(keyword)
+            if len(matched) >= _MAX_EXPLAIN_ITEMS:
+                return total, matched
+    return total, matched
 
 
 def _normalized_redirect_target(url: str) -> tuple[str, str, int | None, str, str]:
@@ -185,6 +205,32 @@ def _matched_keyword_samples(text: str, keywords: list[str], limit: int = _MAX_E
     return matched
 
 
+def _hidden_text_signal_details(
+    extracted_views: list[tuple[str, object, int, list[str]]],
+) -> tuple[dict[str, int], list[str]]:
+    metrics: dict[str, int] = {}
+    details: list[str] = []
+    for label, extracted_view, hidden_keyword_hits, hidden_keyword_samples in extracted_views:
+        metrics[f"{label}_hidden_blocks"] = extracted_view.hidden_text_count
+        metrics[f"{label}_hidden_chars"] = extracted_view.hidden_text_char_count
+        if extracted_view.hidden_external_link_count > 0:
+            metrics[f"{label}_hidden_external_links"] = extracted_view.hidden_external_link_count
+        if hidden_keyword_hits > 0:
+            metrics[f"{label}_hidden_keyword_hits"] = hidden_keyword_hits
+        if hidden_keyword_samples:
+            details.append(f"{label} hidden keywords: {', '.join(hidden_keyword_samples[:_MAX_EXPLAIN_ITEMS])}")
+        if extracted_view.hidden_external_links:
+            links = ", ".join(extracted_view.hidden_external_links[:_MAX_EXPLAIN_ITEMS])
+            details.append(f"{label} hidden external links: {links}")
+        if extracted_view.hidden_text_reasons:
+            details.append(
+                f"{label} hidden text reasons: {', '.join(extracted_view.hidden_text_reasons[:_MAX_EXPLAIN_ITEMS])}"
+            )
+        if extracted_view.hidden_text_samples:
+            details.append(f"{label} hidden text sample: {extracted_view.hidden_text_samples[0]}")
+    return metrics, details[:8]
+
+
 def detect_signals(
     target: TargetSpec,
     views: dict[str, ViewSnapshot],
@@ -251,6 +297,31 @@ def detect_signals(
                     ),
                 )
             )
+
+    hidden_text_views: list[tuple[str, object, int, list[str]]] = []
+    for label, extracted_view in (("browser", browser), ("bot", bot), ("rendered", headless)):
+        if extracted_view is None:
+            continue
+        if extracted_view.hidden_text_count <= 0 or extracted_view.hidden_text_char_count < _MIN_HIDDEN_TEXT_CHARS:
+            continue
+        hidden_keyword_hits, hidden_keyword_samples = _hidden_keyword_hits(
+            extracted_view.hidden_text_content,
+            config,
+        )
+        if hidden_keyword_hits <= 0 and extracted_view.hidden_external_link_count <= 0:
+            continue
+        hidden_text_views.append((label, extracted_view, hidden_keyword_hits, hidden_keyword_samples))
+    if hidden_text_views:
+        hidden_metrics, hidden_details = _hidden_text_signal_details(hidden_text_views)
+        signals.append(
+            Signal(
+                code="hidden_text_pattern",
+                message="Possible hidden text pattern",
+                points=1,
+                metrics=hidden_metrics,
+                details=hidden_details,
+            )
+        )
 
     if browser and (bot or headless):
         suspicious_views = [entry for entry in (bot, headless) if entry is not None]

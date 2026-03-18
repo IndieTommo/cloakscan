@@ -91,9 +91,16 @@ class ExtractedView:
     outbound_link_count: int
     external_domain_count: int
     hidden_anchor_count: int
+    hidden_text_count: int
+    hidden_text_char_count: int
+    hidden_external_link_count: int
     japanese_ratio: float
     outbound_links: list[str] = field(default_factory=list)
     external_domains: list[str] = field(default_factory=list)
+    hidden_text_samples: list[str] = field(default_factory=list)
+    hidden_text_reasons: list[str] = field(default_factory=list)
+    hidden_text_content: str = ""
+    hidden_external_links: list[str] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -138,3 +145,5 @@ class RunSummary:
     failures_count: int
     runtime_seconds: float
     partial_count: int = 0
+
+

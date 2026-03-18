@@ -278,6 +278,13 @@ Important flags:
   - useful for your own sites and investigations
   - should not be your default workflow for unknown targets
 
+Practical safety note:
+
+- By default cloakscan does not persist crawled page bodies to disk.
+- `--safe` is the lowest-risk mode for normal use.
+- Normal mode is still not zero-risk, because headless rendering executes untrusted page JavaScript in Chromium.
+- For highly suspicious targets, a VM, container, or separate low-privilege user account is still the better operating model.
+
 ## Terminal Behavior
 
 When you launch with:

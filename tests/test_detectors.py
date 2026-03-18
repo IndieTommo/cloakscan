@@ -41,6 +41,108 @@ class DetectorTests(unittest.TestCase):
         self.assertTrue(any("bot-only text sample:" in detail for detail in mismatch_signal.details))
         self.assertTrue(any("matched keywords:" in detail for detail in keyword_signal.details))
 
+    def test_detects_hidden_text_pattern_for_browser_and_bot(self) -> None:
+        from cloakscan.detect import detect_signals
+
+        config = load_scan_config("balanced", config_path=None)
+        target = TargetSpec(raw="example.com", normalized_url="https://example.com/")
+        hidden_html = (
+            "<html><body>"
+            "<div style='display:none'>"
+            "<a href='https://casino-example.com'>best casino bonus</a>"
+            "<a href='https://viagra-example.com'>cheap viagra</a>"
+            "</div>"
+            "</body></html>"
+        )
+        views = {
+            "browser": ViewSnapshot(
+                profile="browser",
+                requested_url="https://example.com/",
+                final_url="https://example.com/",
+                status_code=200,
+                html=hidden_html,
+            ),
+            "bot": ViewSnapshot(
+                profile="bot",
+                requested_url="https://example.com/",
+                final_url="https://example.com/",
+                status_code=200,
+                html=hidden_html,
+            ),
+        }
+
+        signals = detect_signals(target=target, views=views, config=config)
+        hidden_signal = next(signal for signal in signals if signal.code == "hidden_text_pattern")
+
+        self.assertEqual(hidden_signal.points, 1)
+        self.assertEqual(hidden_signal.metrics["browser_hidden_blocks"], 1)
+        self.assertEqual(hidden_signal.metrics["bot_hidden_blocks"], 1)
+        self.assertEqual(hidden_signal.metrics["browser_hidden_external_links"], 2)
+        self.assertEqual(hidden_signal.metrics["bot_hidden_external_links"], 2)
+        self.assertTrue(any("browser hidden keywords: casino, viagra" in detail for detail in hidden_signal.details))
+        self.assertTrue(any("bot hidden external links:" in detail for detail in hidden_signal.details))
+        self.assertTrue(any("browser hidden text reasons: display:none" in detail for detail in hidden_signal.details))
+        self.assertTrue(any("bot hidden text sample:" in detail for detail in hidden_signal.details))
+
+    def test_detects_same_color_hidden_text_pattern_when_hidden_content_is_suspicious(self) -> None:
+        from cloakscan.detect import detect_signals
+
+        config = load_scan_config("balanced", config_path=None)
+        target = TargetSpec(raw="example.com", normalized_url="https://example.com/")
+        views = {
+            "browser": ViewSnapshot(
+                profile="browser",
+                requested_url="https://example.com/",
+                final_url="https://example.com/",
+                status_code=200,
+                html=(
+                    "<html><body>"
+                    "<p style='color:#ffffff; background:#ffffff'>cheap viagra no prescription</p>"
+                    "</body></html>"
+                ),
+            ),
+        }
+
+        signals = detect_signals(target=target, views=views, config=config)
+        hidden_signal = next(signal for signal in signals if signal.code == "hidden_text_pattern")
+
+        self.assertEqual(hidden_signal.metrics["browser_hidden_blocks"], 1)
+        self.assertGreaterEqual(hidden_signal.metrics["browser_hidden_keyword_hits"], 1)
+        self.assertTrue(any("color matches background" in detail for detail in hidden_signal.details))
+
+    def test_benign_hidden_ui_text_does_not_trigger_hidden_text_pattern(self) -> None:
+        from cloakscan.detect import detect_signals
+
+        config = load_scan_config("balanced", config_path=None)
+        target = TargetSpec(raw="example.com", normalized_url="https://example.com/")
+        views = {
+            "browser": ViewSnapshot(
+                profile="browser",
+                requested_url="https://example.com/",
+                final_url="https://example.com/",
+                status_code=200,
+                html=(
+                    "<html><body>"
+                    "<div style='display:none'>Nach oben scrollen</div>"
+                    "</body></html>"
+                ),
+            ),
+            "headless": ViewSnapshot(
+                profile="headless",
+                requested_url="https://example.com/",
+                final_url="https://example.com/",
+                status_code=200,
+                html=(
+                    "<html><body>"
+                    "<div style='display:none'>Nach oben scrollen</div>"
+                    "</body></html>"
+                ),
+            ),
+        }
+
+        signals = detect_signals(target=target, views=views, config=config)
+        self.assertNotIn("hidden_text_pattern", {signal.code for signal in signals})
+
     def test_detects_japanese_signal_when_conditions_match(self) -> None:
         from cloakscan.detect import detect_signals
 
@@ -104,7 +206,6 @@ class DetectorTests(unittest.TestCase):
         link_signal = next(signal for signal in signals if signal.code == "outbound_link_injection")
         self.assertTrue(any("new external domains" in detail for detail in link_signal.details))
         self.assertTrue(any("sample added links" in detail for detail in link_signal.details))
-
 
     def test_detects_root_to_subpath_bot_redirect(self) -> None:
         from cloakscan.detect import detect_signals
@@ -174,3 +275,4 @@ class DetectorTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

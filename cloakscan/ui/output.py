@@ -12,7 +12,7 @@ from rich.progress import (
 
 from cloakscan.models import DebugEvent, DebugValue, RunSummary, TargetResult
 
-BANNER_VERSION = "v1.0.1 by Tommo"
+BANNER_VERSION = "v1.0.2 by Tommo"
 
 BANNER = r"""
           $$\                     $$\                                                    
