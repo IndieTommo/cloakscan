@@ -200,6 +200,43 @@ def _cache_bust_token(run_id: str | None, profile: str) -> str | None:
     return f"{run_id}-{profile}"
 
 
+def _target_worker_count(config: ScanConfig) -> int:
+    if config.headless_enabled:
+        return max(1, config.concurrency.headless_workers)
+    return max(1, config.concurrency.http_workers)
+
+
+async def _run_target_job(
+    *,
+    target: TargetSpec,
+    config: ScanConfig,
+    browser_client: httpx.AsyncClient,
+    bot_client: httpx.AsyncClient,
+    tls_debug_client: httpx.AsyncClient | None,
+    renderer: HeadlessRenderer | None,
+    http_semaphore: asyncio.Semaphore,
+    headless_semaphore: asyncio.Semaphore,
+    target_semaphore: asyncio.Semaphore,
+    debug: bool,
+    tls_debug: bool,
+    cache_bust_run_id: str | None = None,
+) -> TargetResult:
+    async with target_semaphore:
+        return await _scan_target_with_timeout(
+            target=target,
+            config=config,
+            browser_client=browser_client,
+            bot_client=bot_client,
+            tls_debug_client=tls_debug_client,
+            renderer=renderer,
+            http_semaphore=http_semaphore,
+            headless_semaphore=headless_semaphore,
+            debug=debug,
+            tls_debug=tls_debug,
+            cache_bust_run_id=cache_bust_run_id,
+        )
+
+
 async def _animate_loading_indicator(progress, task_id: int, stop_event: asyncio.Event) -> None:
     frames = ("Loading", "Loading.", "Loading..", "Loading...")
     index = 0
@@ -541,6 +578,7 @@ async def run_scan(
     results: list[TargetResult] = []
     http_semaphore = asyncio.Semaphore(config.concurrency.http_workers)
     headless_semaphore = asyncio.Semaphore(config.concurrency.headless_workers)
+    target_semaphore = asyncio.Semaphore(_target_worker_count(config))
     show_progress = len(targets) > 1
     progress = create_progress(console) if show_progress else None
     progress_context = progress if progress is not None else nullcontext()
@@ -609,7 +647,7 @@ async def run_scan(
 
             futures = [
                 asyncio.create_task(
-                    _scan_target_with_timeout(
+                    _run_target_job(
                         target=target,
                         config=config,
                         browser_client=browser_client,
@@ -618,6 +656,7 @@ async def run_scan(
                         renderer=renderer,
                         http_semaphore=http_semaphore,
                         headless_semaphore=headless_semaphore,
+                        target_semaphore=target_semaphore,
                         debug=debug,
                         tls_debug=tls_debug,
                         cache_bust_run_id=cache_bust_run_id,

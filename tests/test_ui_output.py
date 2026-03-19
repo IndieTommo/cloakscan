@@ -15,7 +15,7 @@ class UiOutputTests(unittest.TestCase):
         print_banner(console)
         output = console.export_text()
 
-        self.assertIn("v1.0.2 by Tommo", output)
+        self.assertIn("v1.1.0 by Tommo", output)
 
     def test_debug_output_prints_phase_lines_without_raw_html(self) -> None:
         console = Console(record=True, width=140)
@@ -146,5 +146,6 @@ class UiOutputTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
 
 

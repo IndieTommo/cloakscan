@@ -111,6 +111,48 @@ class ScannerBehaviorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(fake_progress.add_task_calls, [("Preparing scan", 2)])
         self.assertTrue(any("description" in update[1] for update in fake_progress.update_calls))
 
+    async def test_batch_timeout_starts_when_target_work_begins(self) -> None:
+        from cloakscan import scanner
+
+        config = load_scan_config("balanced", config_path=None)
+        config.headless_enabled = False
+        config.concurrency.http_workers = 1
+        config.timeouts.total_target_seconds = 0.05
+        fake_progress = _FakeProgress(Console(record=True))
+        work_gate = asyncio.Semaphore(1)
+
+        async def fake_scan_target(*args, **kwargs) -> TargetResult:
+            async with work_gate:
+                await asyncio.sleep(0.04)
+                target = kwargs["target"]
+                return TargetResult(
+                    target=target,
+                    risk="CLEAN",
+                    score=0,
+                    reason="No major cloaking/spam indicators",
+                    views={},
+                    runtime_seconds=0.04,
+                )
+
+        with patch("cloakscan.scanner.create_progress", return_value=fake_progress):
+            with patch("cloakscan.scanner._scan_target", side_effect=fake_scan_target):
+                results, exit_code = await scanner.run_scan(
+                    targets=[
+                        TargetSpec(raw="a.example", normalized_url="https://a.example/"),
+                        TargetSpec(raw="b.example", normalized_url="https://b.example/"),
+                    ],
+                    config=config,
+                    explain=False,
+                    debug=False,
+                    tls_debug=False,
+                    console=Console(record=True),
+                )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(len(results), 2)
+        self.assertTrue(all(not result.failed for result in results))
+        self.assertTrue(all(result.error is None for result in results))
+
     async def test_browser_and_bot_use_separate_http_clients(self) -> None:
         from cloakscan import scanner
 
