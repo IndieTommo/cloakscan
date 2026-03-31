@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from rich.console import Console
 from rich.progress import (
     BarColumn,
@@ -12,7 +14,7 @@ from rich.progress import (
 
 from cloakscan.models import DebugEvent, DebugValue, RunSummary, TargetResult
 
-BANNER_VERSION = "v1.1.0 by Tommo"
+BANNER_VERSION = "v1.2.0 by Tommo"
 
 BANNER = r"""
           $$\                     $$\                                                    
@@ -156,3 +158,75 @@ def print_summary(console: Console, summary: RunSummary) -> None:
     console.print(f"Partial scans: {summary.partial_count}")
     console.print(f"Failures: {summary.failures_count}")
     console.print(f"Runtime: {summary.runtime_seconds:.2f}s")
+
+
+def _serialize_view(view: object) -> dict[str, object]:
+    return {
+        "profile": view.profile,
+        "requested_url": view.requested_url,
+        "final_url": view.final_url,
+        "status_code": view.status_code,
+        "redirect_chain": list(view.redirect_chain),
+        "error": view.error,
+    }
+
+
+def _serialize_signal(signal: object) -> dict[str, object]:
+    return {
+        "code": signal.code,
+        "message": signal.message,
+        "points": signal.points,
+        "metrics": dict(signal.metrics),
+        "details": list(signal.details),
+    }
+
+
+def _serialize_debug_event(event: DebugEvent) -> dict[str, object]:
+    return {
+        "phase": event.phase,
+        "elapsed_seconds": round(event.elapsed_seconds, 3),
+        "details": dict(event.details),
+    }
+
+
+def _serialize_result(result: TargetResult) -> dict[str, object]:
+    return {
+        "target": {
+            "raw": result.target.raw,
+            "normalized_url": result.target.normalized_url,
+            "fallback_url": result.target.fallback_url,
+            "used_fallback": result.target.used_fallback,
+        },
+        "risk": result.risk,
+        "score": result.score,
+        "reason": result.reason,
+        "failed": result.failed,
+        "incomplete": result.incomplete,
+        "warnings": list(result.warnings),
+        "error": result.error,
+        "runtime_seconds": round(result.runtime_seconds, 3),
+        "signals": [_serialize_signal(signal) for signal in result.signals],
+        "debug_events": [_serialize_debug_event(event) for event in result.debug_events],
+        "views": {
+            profile: _serialize_view(view)
+            for profile, view in result.views.items()
+        },
+    }
+
+
+def render_json_report(results: list[TargetResult], summary: RunSummary, exit_code: int) -> str:
+    payload = {
+        "exit_code": exit_code,
+        "summary": {
+            "targets_total": summary.targets_total,
+            "clean_count": summary.clean_count,
+            "low_count": summary.low_count,
+            "medium_count": summary.medium_count,
+            "high_count": summary.high_count,
+            "partial_count": summary.partial_count,
+            "failures_count": summary.failures_count,
+            "runtime_seconds": round(summary.runtime_seconds, 3),
+        },
+        "results": [_serialize_result(result) for result in results],
+    }
+    return json.dumps(payload, indent=2, ensure_ascii=True)

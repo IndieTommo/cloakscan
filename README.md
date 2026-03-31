@@ -69,6 +69,8 @@ It can detect:
 --preset [quick|balanced|strict]
 --config PATH
 --explain
+--json
+--json-out PATH
 --debug
 --tls-debug
 --cache-bust / --no-cache-bust
@@ -90,6 +92,15 @@ What they do:
   - use a specific TOML config file
 - `--explain`
   - print measured signal details and evidence snippets
+- `--json`
+  - emit a machine-readable JSON report instead of terminal output
+  - suppresses the interactive loader, progress bar, and text summary
+- `--json-out PATH`
+  - write a machine-readable JSON report to a file
+  - requires an explicit file path value
+  - keeps the normal terminal output unless you also pass `--json`
+
+`--json` is useful when you want Cloakscan results in a machine-readable format for scripts, APIs, or shell pipelines. `--json-out PATH` writes the same payload directly to disk, which is useful for saved reports, scheduled jobs, or n8n automation.
 - `--debug`
   - print phase timings and scan metadata
 - `--tls-debug`
@@ -122,6 +133,24 @@ Single target with more detail:
 
 ```powershell
 scan https://example.com --explain --debug
+```
+
+Machine-readable output to stdout:
+
+```powershell
+scan https://example.com --json
+```
+
+Machine-readable output to a file:
+
+```powershell
+scan https://example.com --json-out report.json
+```
+
+Machine-readable output to both stdout and a file:
+
+```powershell
+scan https://example.com --json --json-out report.json
 ```
 
 TLS/redirect diagnosis for bot-only issues:
@@ -240,6 +269,10 @@ That means:
 
 - Cloakscan found a real suspicious signal
 - but one required fetch path also had an acquisition problem
+
+In `--json` mode, Cloakscan prints a single JSON object containing `exit_code`, `summary`, and `results`.
+
+With `--json-out PATH`, the same payload is written to the given file path.
 
 Summary lines:
 

@@ -74,6 +74,43 @@ class ScannerBehaviorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(fake_loader.add_task_calls, [("Loading", None)])
         self.assertTrue(any(update[1].get("description") == "Loading" for update in fake_loader.update_calls))
 
+    async def test_json_mode_skips_terminal_output_helpers(self) -> None:
+        from cloakscan import scanner
+
+        config = load_scan_config("balanced", config_path=None)
+        config.headless_enabled = False
+
+        async def fake_scan_target(*args, **kwargs) -> TargetResult:
+            target = kwargs["target"]
+            return TargetResult(
+                target=target,
+                risk="CLEAN",
+                score=0,
+                reason="No major cloaking/spam indicators",
+                views={},
+                runtime_seconds=0.1,
+            )
+
+        with patch("cloakscan.scanner.create_progress", side_effect=AssertionError("progress should be hidden")):
+            with patch("cloakscan.scanner.create_loading_indicator", side_effect=AssertionError("loader should be hidden")):
+                with patch("cloakscan.scanner.print_result", side_effect=AssertionError("result printing should be hidden")):
+                    with patch("cloakscan.scanner._scan_target", side_effect=fake_scan_target):
+                        results, exit_code = await scanner.run_scan(
+                            targets=[
+                                TargetSpec(raw="b.example", normalized_url="https://b.example/"),
+                                TargetSpec(raw="a.example", normalized_url="https://a.example/"),
+                            ],
+                            config=config,
+                            explain=False,
+                            debug=False,
+                            tls_debug=False,
+                            console=Console(record=True),
+                            emit_output=False,
+                        )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual([result.target.raw for result in results], ["b.example", "a.example"])
+
     async def test_multi_target_scan_uses_progress(self) -> None:
         from cloakscan import scanner
 
@@ -117,22 +154,20 @@ class ScannerBehaviorTests(unittest.IsolatedAsyncioTestCase):
         config = load_scan_config("balanced", config_path=None)
         config.headless_enabled = False
         config.concurrency.http_workers = 1
-        config.timeouts.total_target_seconds = 0.05
+        config.timeouts.total_target_seconds = 0.2
         fake_progress = _FakeProgress(Console(record=True))
-        work_gate = asyncio.Semaphore(1)
 
         async def fake_scan_target(*args, **kwargs) -> TargetResult:
-            async with work_gate:
-                await asyncio.sleep(0.04)
-                target = kwargs["target"]
-                return TargetResult(
-                    target=target,
-                    risk="CLEAN",
-                    score=0,
-                    reason="No major cloaking/spam indicators",
-                    views={},
-                    runtime_seconds=0.04,
-                )
+            await asyncio.sleep(0.12)
+            target = kwargs["target"]
+            return TargetResult(
+                target=target,
+                risk="CLEAN",
+                score=0,
+                reason="No major cloaking/spam indicators",
+                views={},
+                runtime_seconds=0.12,
+            )
 
         with patch("cloakscan.scanner.create_progress", return_value=fake_progress):
             with patch("cloakscan.scanner._scan_target", side_effect=fake_scan_target):
@@ -307,3 +342,4 @@ class ScannerBehaviorTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

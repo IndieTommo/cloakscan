@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 import time
 
@@ -11,7 +12,7 @@ from cloakscan.config import ConfigError, available_presets, load_scan_config
 from cloakscan.input import collect_targets
 from cloakscan.scanner import run_scan
 from cloakscan.score import build_summary
-from cloakscan.ui import print_summary
+from cloakscan.ui import print_summary, render_json_report
 
 _TEXT_INPUT_SUFFIXES = {".txt", ".list", ".lst", ".csv"}
 
@@ -35,6 +36,44 @@ def root_callback(
     """Root CLI callback to enforce subcommand-style invocation."""
     del no_new_window
     return
+
+
+def _render_json_payload(payload: dict[str, object]) -> str:
+    return json.dumps(payload, indent=2, ensure_ascii=True)
+
+
+def _write_json_payload(output_path: Path, payload: dict[str, object]) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(_render_json_payload(payload), encoding="utf-8")
+
+
+def _emit_json_payload(payload: dict[str, object]) -> None:
+    typer.echo(_render_json_payload(payload))
+
+
+def _deliver_json_payload(
+    payload: dict[str, object],
+    *,
+    emit_stdout: bool,
+    output_path: Path | None,
+) -> None:
+    if output_path is not None:
+        _write_json_payload(output_path, payload)
+    if emit_stdout:
+        _emit_json_payload(payload)
+
+
+def _json_error_payload(message: str, exit_code: int) -> dict[str, object]:
+    return {
+        "exit_code": exit_code,
+        "error": message,
+    }
+
+
+def _is_option_like_output_path(path: Path | None) -> bool:
+    if path is None:
+        return False
+    return str(path).lstrip().startswith("-")
 
 
 def _coerce_single_file_target(
@@ -92,6 +131,16 @@ def scan_command(
         "--explain",
         help="Print measured signal details.",
     ),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        help="Emit a machine-readable JSON report instead of terminal output.",
+    ),
+    json_output_path: Path | None = typer.Option(
+        None,
+        "--json-out",
+        help="Write a machine-readable JSON report to the given file path.",
+    ),
     debug: bool = typer.Option(
         False,
         "--debug",
@@ -127,18 +176,50 @@ def scan_command(
 
     console = Console()
 
+    if _is_option_like_output_path(json_output_path):
+        message = "Path Missing"
+        if json_output:
+            _emit_json_payload(_json_error_payload(message, exit_code=2))
+        else:
+            console.print(f"[bold red]Input error[/bold red]: {message}")
+        raise typer.Exit(code=2)
+
     normalized_preset = preset.lower().strip()
     if normalized_preset not in available_presets():
-        console.print(
-            f"[bold red]Invalid preset[/bold red]: {preset}. "
+        message = (
+            f"Invalid preset: {preset}. "
             f"Valid presets: {', '.join(available_presets())}"
         )
+        if json_output or json_output_path is not None:
+            try:
+                _deliver_json_payload(
+                    _json_error_payload(message, exit_code=2),
+                    emit_stdout=json_output,
+                    output_path=json_output_path,
+                )
+            except OSError as exc:
+                console.print(f"[bold red]JSON output error[/bold red]: {exc}")
+        if not json_output:
+            console.print(
+                f"[bold red]Invalid preset[/bold red]: {preset}. "
+                f"Valid presets: {', '.join(available_presets())}"
+            )
         raise typer.Exit(code=2)
 
     try:
         config = load_scan_config(preset=normalized_preset, config_path=config_path)
     except ConfigError as exc:
-        console.print(f"[bold red]Config error[/bold red]: {exc}")
+        if json_output or json_output_path is not None:
+            try:
+                _deliver_json_payload(
+                    _json_error_payload(f"Config error: {exc}", exit_code=2),
+                    emit_stdout=json_output,
+                    output_path=json_output_path,
+                )
+            except OSError as write_exc:
+                console.print(f"[bold red]JSON output error[/bold red]: {write_exc}")
+        if not json_output:
+            console.print(f"[bold red]Config error[/bold red]: {exc}")
         raise typer.Exit(code=2)
 
     config.safe_mode = safe_mode
@@ -152,11 +233,31 @@ def scan_command(
     try:
         target_specs = collect_targets(targets, input_path=input_file)
     except RuntimeError as exc:
-        console.print(f"[bold red]Input error[/bold red]: {exc}")
+        if json_output or json_output_path is not None:
+            try:
+                _deliver_json_payload(
+                    _json_error_payload(f"Input error: {exc}", exit_code=2),
+                    emit_stdout=json_output,
+                    output_path=json_output_path,
+                )
+            except OSError as write_exc:
+                console.print(f"[bold red]JSON output error[/bold red]: {write_exc}")
+        if not json_output:
+            console.print(f"[bold red]Input error[/bold red]: {exc}")
         raise typer.Exit(code=2)
 
     if not target_specs:
-        console.print("[bold red]No valid targets provided.[/bold red]")
+        if json_output or json_output_path is not None:
+            try:
+                _deliver_json_payload(
+                    _json_error_payload("No valid targets provided.", exit_code=2),
+                    emit_stdout=json_output,
+                    output_path=json_output_path,
+                )
+            except OSError as write_exc:
+                console.print(f"[bold red]JSON output error[/bold red]: {write_exc}")
+        if not json_output:
+            console.print("[bold red]No valid targets provided.[/bold red]")
         raise typer.Exit(code=2)
 
     started_at = time.perf_counter()
@@ -170,17 +271,49 @@ def scan_command(
                 tls_debug=tls_debug,
                 console=console,
                 cache_bust=cache_bust,
+                emit_output=not json_output,
             )
         )
     except RuntimeError as exc:
-        console.print(f"[bold red]Runtime error[/bold red]: {exc}")
+        if json_output or json_output_path is not None:
+            try:
+                _deliver_json_payload(
+                    _json_error_payload(f"Runtime error: {exc}", exit_code=2),
+                    emit_stdout=json_output,
+                    output_path=json_output_path,
+                )
+            except OSError as write_exc:
+                console.print(f"[bold red]JSON output error[/bold red]: {write_exc}")
+        if not json_output:
+            console.print(f"[bold red]Runtime error[/bold red]: {exc}")
         raise typer.Exit(code=2)
     except KeyboardInterrupt:
-        console.print("[bold red]Interrupted[/bold red]")
+        if json_output or json_output_path is not None:
+            try:
+                _deliver_json_payload(
+                    _json_error_payload("Interrupted", exit_code=2),
+                    emit_stdout=json_output,
+                    output_path=json_output_path,
+                )
+            except OSError as write_exc:
+                console.print(f"[bold red]JSON output error[/bold red]: {write_exc}")
+        if not json_output:
+            console.print("[bold red]Interrupted[/bold red]")
         raise typer.Exit(code=2)
 
     runtime_seconds = time.perf_counter() - started_at
     summary = build_summary(results=results, runtime_seconds=runtime_seconds)
-    print_summary(console, summary)
+    if json_output or json_output_path is not None:
+        json_payload = json.loads(render_json_report(results, summary, exit_code))
+        try:
+            _deliver_json_payload(
+                json_payload,
+                emit_stdout=json_output,
+                output_path=json_output_path,
+            )
+        except OSError as exc:
+            console.print(f"[bold red]JSON output error[/bold red]: {exc}")
+            raise typer.Exit(code=2)
+    if not json_output:
+        print_summary(console, summary)
     raise typer.Exit(code=exit_code)
-

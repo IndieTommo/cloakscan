@@ -1,0 +1,14 @@
+{
+  "exit_code": 0,
+  "summary": {
+    "targets_total": 1,
+    "clean_count": 1,
+    "low_count": 0,
+    "medium_count": 0,
+    "high_count": 0,
+    "partial_count": 0,
+    "failures_count": 0,
+    "runtime_seconds": 0.5
+  },
+  "results": []
+}

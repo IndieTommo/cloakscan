@@ -573,13 +573,14 @@ async def run_scan(
     tls_debug: bool,
     console: Console,
     cache_bust: bool = True,
+    emit_output: bool = True,
 ) -> tuple[list[TargetResult], int]:
     started_at = time.perf_counter()
     results: list[TargetResult] = []
     http_semaphore = asyncio.Semaphore(config.concurrency.http_workers)
     headless_semaphore = asyncio.Semaphore(config.concurrency.headless_workers)
     target_semaphore = asyncio.Semaphore(_target_worker_count(config))
-    show_progress = len(targets) > 1
+    show_progress = emit_output and len(targets) > 1
     progress = create_progress(console) if show_progress else None
     progress_context = progress if progress is not None else nullcontext()
     cache_bust_run_id = secrets.token_hex(4) if cache_bust else None
@@ -628,7 +629,7 @@ async def run_scan(
                     ) from exc
                 await stack.enter_async_context(_RendererContext(renderer))
 
-            if debug:
+            if debug and emit_output:
                 print_debug_event(
                     output_console,
                     DebugEvent(
@@ -672,7 +673,7 @@ async def run_scan(
                     progress.update(task_id, advance=1)
                     print_result(output_console, result, explain=explain, debug=debug)
                     results.append(_discard_result_payloads(result))
-            else:
+            elif emit_output:
                 loading_indicator = create_loading_indicator(console)
                 stop_event = asyncio.Event()
                 with loading_indicator:
@@ -687,6 +688,9 @@ async def run_scan(
                         await animation_task
                 print_result(output_console, result, explain=explain, debug=debug)
                 results.append(_discard_result_payloads(result))
+            else:
+                ordered_results = await asyncio.gather(*futures)
+                results.extend(_discard_result_payloads(result) for result in ordered_results)
 
     runtime_seconds = time.perf_counter() - started_at
     summary = build_summary(results=results, runtime_seconds=runtime_seconds)

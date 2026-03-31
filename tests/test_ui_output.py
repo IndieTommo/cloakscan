@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import json
 import unittest
 
 from rich.console import Console
 
 from cloakscan.models import DebugEvent, RunSummary, Signal, TargetResult, TargetSpec, ViewSnapshot
-from cloakscan.ui.output import print_banner, print_result, print_summary
+from cloakscan.ui.output import print_banner, print_result, print_summary, render_json_report
 
 
 class UiOutputTests(unittest.TestCase):
@@ -16,6 +17,56 @@ class UiOutputTests(unittest.TestCase):
         output = console.export_text()
 
         self.assertIn("v1.1.0 by Tommo", output)
+
+    def test_render_json_report_serializes_results_without_html(self) -> None:
+        result = TargetResult(
+            target=TargetSpec(raw="https://example.com", normalized_url="https://example.com/"),
+            risk="LOW",
+            score=1,
+            reason="Possible hidden text pattern",
+            signals=[
+                Signal(
+                    code="hidden_text_pattern",
+                    message="Possible hidden text pattern",
+                    points=1,
+                    metrics={"browser_hidden_blocks": 1},
+                    details=["browser hidden text reasons: display:none"],
+                )
+            ],
+            views={
+                "browser": ViewSnapshot(
+                    profile="browser",
+                    requested_url="https://example.com/",
+                    final_url="https://example.com/",
+                    status_code=200,
+                    html="<html><body>secret html</body></html>",
+                    redirect_chain=["https://example.com/"],
+                )
+            },
+            warnings=["sample warning"],
+            runtime_seconds=1.23,
+        )
+        report = render_json_report(
+            [result],
+            RunSummary(
+                targets_total=1,
+                clean_count=0,
+                low_count=1,
+                medium_count=0,
+                high_count=0,
+                failures_count=0,
+                partial_count=0,
+                runtime_seconds=1.23,
+            ),
+            exit_code=0,
+        )
+
+        payload = json.loads(report)
+        self.assertEqual(payload["exit_code"], 0)
+        self.assertEqual(payload["summary"]["low_count"], 1)
+        self.assertEqual(payload["results"][0]["signals"][0]["code"], "hidden_text_pattern")
+        self.assertEqual(payload["results"][0]["views"]["browser"]["final_url"], "https://example.com/")
+        self.assertNotIn("html", payload["results"][0]["views"]["browser"])
 
     def test_debug_output_prints_phase_lines_without_raw_html(self) -> None:
         console = Console(record=True, width=140)
